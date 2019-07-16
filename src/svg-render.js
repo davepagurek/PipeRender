@@ -9,39 +9,50 @@ class Path {
     this.controlPoints = [];
   }
 
-  push({ point, path, radius }) {
-    this.controlPoints.push({ point, path, radius });
+  push({ point, color, radius }) {
+    this.controlPoints.push({ point, color, radius });
   }
 
-  makeBezierPaths(projection) {
+  getProjection(point, projection, width, height) {
+    const p = glMatrix.vec4.fromValues(point[0], point[1], point[2], 1);
+    glMatrix.vec4.transformMat4(p, p, projection);
+
+    return [
+      (p[0] / p[3] + 1) / 2 * width,
+      (p[1] / p[3] + 1) / 2 * height,
+      (p[2] / p[3] + 1) / 2,
+      p[3]
+    ];
+  }
+
+  pointToXYZ(point) {
+    const [ x, y, z ] = point;
+    return { x, y, z };
+  }
+
+  makeBezierPaths(projection, width, height) {
     const paths = [];
 
     let lastColor = '#000000';
     let lastRadius = 1;
-    for (let i = 0; i < this.controlPoints.length; i += 3) {
-      const element = document.createElementNS(ns, 'path');
-      const commands = [];
-
-      commands.push(`M ${this.getProjection(this.controlPoints[i], projection)}`);
+    for (let i = 0; i < this.controlPoints.length-3; i += 3) {
       lastColor = this.controlPoints[i].color || lastColor;
       lastRadius = this.controlPoints[i].radius !== undefined ? this.controlPoints[i].radius : lastRadius;
 
       const colorA = lastColor;
       const radiusA = lastRadius;
 
-      commands.push('C');
-      let points = [];
-      for (let j = 1; j < 4; j++) {
-        points.push(this.getProjection(this.controlPoints[i + j], projection));
-      }
-      commands.push(points.join(' '));
+      const bezier = new Bezier(
+        this.pointToXYZ(this.controlPoints[i].point),
+        this.pointToXYZ(this.controlPoints[i+1].point),
+        this.pointToXYZ(this.controlPoints[i+2].point),
+        this.pointToXYZ(this.controlPoints[i+3].point));
 
-      lastColor = this.controlPoints[i+4].color || lastColor;
-      lastRadius = this.controlPoints[i+4].radius !== undefined ? this.controlPoints[i+4].radius : lastRadius;
+      lastColor = this.controlPoints[i+3].color || lastColor;
+      lastRadius = this.controlPoints[i+3].radius !== undefined ? this.controlPoints[i+3].radius : lastRadius;
 
-      element.setAttribute('d', commands.join(' '));
       paths.push({
-        element,
+        bezier,
         colorA,
         radiusA,
         colorB: lastColor,
@@ -55,49 +66,51 @@ class Path {
   splitPath(path, perspective, width, height, precision) {
     const segments = [];
 
-    const total = path.element.getTotalLength();
+    const total = path.bezier.length();
     const n = Math.ceil(total / precision);
 
     const points = [];
     const radii = [];
     const colors = [];
+    const depths = [];
     for (let i = 0; i < n; i++) {
-      const distance = Math.min(total, i * precision);
-      const point = glMatrix.vec4.fromValues(...path.element.getPointAtDistance(distance), 1);
-      points.push(glMatrix.vec4.transformMat4(
-        point,
-        point,
-        perspective));
-      colors.push(lerp(path.colorA, path.colorB, i / (n - 1)));
-      radii.push(lerp(path.radiusA, path.radiusB, i / (n - 1)));
+      const { x, y, z } = path.bezier.get(i / (n - 1));
+      const projected = this.getProjection([ x, y, z ], perspective, width, height);
+      points.push(projected);
+      colors.push(glMatrix.vec3.lerp(glMatrix.vec3.create(), path.colorA, path.colorB, i / (n - 1)));
+      radii.push(lerp(path.radiusA, path.radiusB, i / (n - 1)) / projected[3]);
+      depths.push(projected[2]);
     }
 
     for (let i = 0; i < n-1; i++) {
-      const [ a, b ] = [i, i+1].map(offset => [
-        (points[n][0] / points[n][3] + 1) / 2 * width,
-        (-points[n][1] / points[n][3] + 1) / 2 * height
-      ]);
+      const a = points[i];
+      const b = points[i+1]
       const rA = radii[i];
       const rB = radii[i+1];
-      const depth = (points[i][2]/points[i][3] + points[i+1][2]/points[i+1][3])/2;
+      const depth = (depths[i] + depths[i+1]) / 2;
 
       const d = [0, 1].map(i => (b[i]-a[i]) / Math.sqrt(Math.pow(b[0]-a[0], 2) + Math.pow(b[1]-a[1], 2)));
-      const normal = [d[1], -d[0]];
+      const normal = [d[1]*width/a[3], -d[0]*height/a[3]];
 
       let normalB = normal;
       if (i+1 < n-1) {
-        // TODO calculate normal at next point
+        const c = points[i+2]
+        const d2 = [0, 1].map(i => (c[i]-b[i]) / Math.sqrt(Math.pow(c[0]-b[0], 2) + Math.pow(c[1]-b[1], 2)));
+        normalB = [d2[1]*width/b[3], -d2[0]*height/b[3]];
       }
 
       const element = document.createElementNS(ns, 'path');
       const commands = [];
       commands.push(`M ${a[0] - normal[0]*rA}, ${a[1] - normal[1]*rA}`);
-      commands.push(`L ${b[0] - normalB[0]*rB}, ${a[1] - normalB[1]*rA}`)
-      commands.push(`L ${b[0] + normalB[0]*rB}, ${a[1] + normalB[1]*rA}`)
+      commands.push(`L ${b[0] - normalB[0]*rB}, ${b[1] - normalB[1]*rA}`)
+      commands.push(`L ${b[0] + normalB[0]*rB}, ${b[1] + normalB[1]*rA}`)
       commands.push(`L ${a[0] + normal[0]*rA}, ${a[1] + normal[1]*rA}`);
       commands.push('Z');
       element.setAttribute('d', commands.join(' '));
-      element.setAttribute('fill', colors[i]); // TODO make gradient
+
+      const colorA = colors[i];
+      const colorB = colors[i+1];
+      element.setAttribute('fill', `rgba(${colorA.map(c => c*255).join(',')})`); // TODO make gradient
       element.setAttribute('stroke-width', '0');
 
       segments.push({element, depth});
@@ -106,25 +119,28 @@ class Path {
     return segments;
   }
 
-  makeSegments(projection, width, height, precision = 4) {
+  generateSegments(perspective, width, height, precision = 1) {
     const segments = [];
-    makeBezierPaths(projection).forEach(path => segments.push(...splitPath(path, perspective, width, height, precision)));
+    this.makeBezierPaths(perspective).forEach(path => segments.push(...this.splitPath(path, perspective, width, height, precision)));
 
     return segments;
   }
 }
 
-class SVGRenderer {
+class PipeDream {
   constructor(svg) {
     this.svg = svg || document.createElementNS(ns, 'svg');
+    //this.svg.setAttribute('shape-rendering', 'crispEdges');
     this.segments = [];
 
 
     this.projectionMatrix = glMatrix.mat4.create();
     this.matrix = glMatrix.mat4.create();
+    this.width = this.svg.getAttribute('width');
+    this.height = this.svg.getAttribute('height');
 
     const fieldOfView = Math.PI / 4;
-    const aspect = this.svg.width / this.svg.height;
+    const aspect = this.width / this.height;
     const zNear = 1;
     const zFar = 1000;
     glMatrix.mat4.perspective(this.projectionMatrix, fieldOfView, aspect, zNear, zFar);
@@ -151,12 +167,23 @@ class SVGRenderer {
     const path = new Path();
 
     const emit = ({ point, color, radius }) => {
+      if (settings.continuous && path.controlPoints.length >= 4 && (path.controlPoints.length - 4) % 3 == 0) {
+        const b = path.controlPoints[path.controlPoints.length - 1].point;
+        const a = path.controlPoints[path.controlPoints.length - 2].point;
+        path.push({
+          point: glMatrix.vec4.sub(
+            glMatrix.vec4.create(),
+            glMatrix.vec4.fromValues(b[0]*2, b[1]*2, b[2]*2, 2),
+            a)
+        });
+      }
+
       const p = glMatrix.vec4.fromValues(point[0], point[1], point[2], 1);
-      path.push(
-        glMatrix.transformMat4(p, o, this.matrix),
+      path.push({
+        point: glMatrix.vec4.transformMat4(p, p, this.matrix),
         color,
         radius
-      );
+      });
     };
 
     return (inputs) => {
@@ -164,11 +191,11 @@ class SVGRenderer {
         settings.vert(attr, settings.uniforms, emit);
       });
 
-      if (inputs.postprocess) {
-        inputs.postprocess(controlPoints);
+      if (settings.postprocess) {
+        settings.postprocess(path);
       }
 
-      this.segments.push(...path.generateSegments(this.projectionMatrix));
+      this.segments.push(...path.generateSegments(this.projectionMatrix, this.width, this.height));
     };
   }
 
@@ -180,6 +207,6 @@ class SVGRenderer {
   draw() {
     // Higher depth first so that closer elements get drawn last
     this.segments.sort((a, b) => b.depth - a.depth);
-    this.segments.forEach(segment => this.svg.appendChild(...segment.makeElement(this.svg.width, this.svg.height).map(s => s.element)));
+    this.segments.forEach(s => this.svg.appendChild(s.element));
   }
 }
