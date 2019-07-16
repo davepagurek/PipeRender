@@ -1,1 +1,1 @@
-const renderer = SVGRender(document.getElementById('stage'));
+const r = SVGRender(document.getElementById('stage'));
