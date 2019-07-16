@@ -208,9 +208,15 @@ class PipeDream {
     };
   }
 
-  clear() {
+  clear(bgColor = glMatrix.vec3.fromValues(1,1,1)) {
     this.segments = [];
     while (this.svg.firstChild) this.svg.removeChild(this.svg.firstChild);
+    const bg = document.createElementNS(ns, 'rect');
+    bg.setAttribute('width', this.width);
+    bg.setAttribute('height', this.height);
+    bg.setAttribute('fill', `rgba(${bgColor.map(c => (c*255).toFixed(4)).join(',')})`);
+    bg.setAttribute('stroke-width', 0);
+    this.svg.appendChild(bg);
   }
 
   draw() {
