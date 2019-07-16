@@ -10,13 +10,6 @@ const drawLine = pipe.shader({
       radius: 10
     });
   },
-  postprocess: (path) => {
-    const points = path.controlPoints.map(p => p.point);
-    console.log(points);
-    for (let i = 0; i < points.length-1; i++) {
-      console.log(points[i].map((v,x) => points[i+1][x]-v));
-    }
-  },
   continuous: true
 });
 

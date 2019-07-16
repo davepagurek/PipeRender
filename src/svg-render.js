@@ -33,7 +33,7 @@ class Path {
   makeBezierPaths(projection, width, height) {
     const paths = [];
 
-    let lastColor = '#000000';
+    let lastColor = glMatrix.vec3.fromValues(0,0,0);
     let lastRadius = 1;
     for (let i = 0; i < this.controlPoints.length-3; i += 3) {
       lastColor = this.controlPoints[i].color || lastColor;
@@ -63,28 +63,36 @@ class Path {
     return paths;
   }
 
-  splitPath(path, perspective, width, height, precision) {
+  splitPath(paths, perspective, width, height, precision) {
     const segments = [];
-
-    const total = path.bezier.length();
-    const n = Math.ceil(total / precision);
-
     const points = [];
     const radii = [];
     const colors = [];
     const depths = [];
-    for (let i = 0; i < n; i++) {
-      const { x, y, z } = path.bezier.get(i / (n - 1));
-      const projected = this.getProjection([ x, y, z ], perspective, width, height);
-      points.push(projected);
-      colors.push(glMatrix.vec3.lerp(glMatrix.vec3.create(), path.colorA, path.colorB, i / (n - 1)));
-      radii.push(lerp(path.radiusA, path.radiusB, i / (n - 1)) / projected[3]);
-      depths.push(projected[2]);
-    }
 
-    for (let i = 0; i < n-1; i++) {
+    paths.forEach((path, idx) => {
+      const total = path.bezier.length();
+      const n = idx === paths.length-1 ?
+        Math.ceil(total / precision) : Math.floor(total / precision);
+
+      for (let i = 0; i < n; i++) {
+        const { x, y, z } = path.bezier.get(i / (n - 1));
+        const projected = this.getProjection([ x, y, z ], perspective, width, height);
+
+        const last = points[points.length - 1];
+        if (last && projected.every((v, i) => v === last[i])) {
+          continue;
+        }
+        points.push(projected);
+        colors.push(glMatrix.vec3.lerp(glMatrix.vec3.create(), path.colorA, path.colorB, i / (n - 1)));
+        radii.push(lerp(path.radiusA, path.radiusB, i / (n - 1)) / projected[3]);
+        depths.push(projected[2]);
+      }
+    });
+
+    for (let i = 0; i < points.length-1; i++) {
       const a = points[i];
-      const b = points[i+1]
+      const b = points[i+1];
       const rA = radii[i];
       const rB = radii[i+1];
       const depth = (depths[i] + depths[i+1]) / 2;
@@ -93,25 +101,27 @@ class Path {
       const normal = [d[1]*width/a[3], -d[0]*height/a[3]];
 
       let normalB = normal;
-      if (i+1 < n-1) {
-        const c = points[i+2]
+      if (i+1 < points.length-1) {
+        const c = points[i+2];
         const d2 = [0, 1].map(i => (c[i]-b[i]) / Math.sqrt(Math.pow(c[0]-b[0], 2) + Math.pow(c[1]-b[1], 2)));
         normalB = [d2[1]*width/b[3], -d2[0]*height/b[3]];
       }
 
       const element = document.createElementNS(ns, 'path');
       const commands = [];
-      commands.push(`M ${a[0] - normal[0]*rA}, ${a[1] - normal[1]*rA}`);
-      commands.push(`L ${b[0] - normalB[0]*rB}, ${b[1] - normalB[1]*rA}`)
-      commands.push(`L ${b[0] + normalB[0]*rB}, ${b[1] + normalB[1]*rA}`)
-      commands.push(`L ${a[0] + normal[0]*rA}, ${a[1] + normal[1]*rA}`);
+      commands.push(`M ${(a[0] - normal[0]*rA).toFixed(4)}, ${(a[1] - normal[1]*rA).toFixed(4)}`);
+      commands.push(`L ${(b[0] - normalB[0]*rB).toFixed(4)}, ${(b[1] - normalB[1]*rB).toFixed(4)}`)
+      commands.push(`L ${(b[0] + normalB[0]*rB).toFixed(4)}, ${(b[1] + normalB[1]*rB).toFixed(4)}`)
+      commands.push(`L ${(a[0] + normal[0]*rA).toFixed(4)}, ${(a[1] + normal[1]*rA).toFixed(4)}`);
       commands.push('Z');
       element.setAttribute('d', commands.join(' '));
 
       const colorA = colors[i];
       const colorB = colors[i+1];
-      element.setAttribute('fill', `rgba(${colorA.map(c => c*255).join(',')})`); // TODO make gradient
-      element.setAttribute('stroke-width', '0');
+      const colorStr = `rgba(${colorA.map(c => (c*255).toFixed(4)).join(',')})`;
+      element.setAttribute('fill', colorStr); // TODO make gradient
+      element.setAttribute('stroke', colorStr); // TODO make gradient
+      element.setAttribute('stroke-width', '0.5');
 
       segments.push({element, depth});
     }
@@ -119,9 +129,8 @@ class Path {
     return segments;
   }
 
-  generateSegments(perspective, width, height, precision = 1) {
-    const segments = [];
-    this.makeBezierPaths(perspective).forEach(path => segments.push(...this.splitPath(path, perspective, width, height, precision)));
+  generateSegments(perspective, width, height, precision = 0.1) {
+    const segments = this.splitPath(this.makeBezierPaths(perspective), perspective, width, height, precision);
 
     return segments;
   }
