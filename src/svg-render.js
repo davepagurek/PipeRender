@@ -69,7 +69,9 @@ class Path {
     const radii = [];
     const colors = [];
     const depths = [];
+    const zs = [];
 
+    console.log(paths);
     paths.forEach((path, idx) => {
       const total = path.bezier.length();
       const n = idx === paths.length-1 ?
@@ -87,8 +89,26 @@ class Path {
         colors.push(glMatrix.vec3.lerp(glMatrix.vec3.create(), path.colorA, path.colorB, i / (n - 1)));
         radii.push(lerp(path.radiusA, path.radiusB, i / (n - 1)) / projected[3]);
         depths.push(projected[2]);
+        zs.push(z);
       }
     });
+
+    /*for (let i = 0; i < points.length; i++) {
+      const depth = depths[i];
+      const z = zs[i];
+
+      const element = document.createElementNS(ns, 'circle');
+      element.setAttribute('cx', points[i][0].toFixed(8));
+      element.setAttribute('cy', points[i][1].toFixed(8));
+      element.setAttribute('r', radii[i].toFixed(8));
+
+      const colorStr = `rgba(${colors[i].map(c => (c*255).toFixed(8)).join(',')})`;
+      element.setAttribute('fill', colorStr);
+      element.setAttribute('stroke', colorStr);
+      element.setAttribute('stroke-width', 0.5);
+
+      segments.push({element, depth, z});
+    }*/
 
     for (let i = 0; i < points.length-1; i++) {
       const a = points[i];
@@ -96,6 +116,7 @@ class Path {
       const rA = radii[i];
       const rB = radii[i+1];
       const depth = (depths[i] + depths[i+1]) / 2;
+      const z = (zs[i] + zs[i+1]) / 2;
 
       const d = [0, 1].map(i => (b[i]-a[i]) / Math.sqrt(Math.pow(b[0]-a[0], 2) + Math.pow(b[1]-a[1], 2)));
       const normal = [d[1]*width/a[3], -d[0]*height/a[3]];
@@ -109,21 +130,22 @@ class Path {
 
       const element = document.createElementNS(ns, 'path');
       const commands = [];
-      commands.push(`M ${(a[0] - normal[0]*rA).toFixed(4)}, ${(a[1] - normal[1]*rA).toFixed(4)}`);
-      commands.push(`L ${(b[0] - normalB[0]*rB).toFixed(4)}, ${(b[1] - normalB[1]*rB).toFixed(4)}`)
-      commands.push(`L ${(b[0] + normalB[0]*rB).toFixed(4)}, ${(b[1] + normalB[1]*rB).toFixed(4)}`)
-      commands.push(`L ${(a[0] + normal[0]*rA).toFixed(4)}, ${(a[1] + normal[1]*rA).toFixed(4)}`);
+      commands.push(`M ${(a[0] - normal[0]*rA).toFixed(8)}, ${(a[1] - normal[1]*rA).toFixed(8)}`);
+      commands.push(`L ${(b[0] - normalB[0]*rB).toFixed(8)}, ${(b[1] - normalB[1]*rB).toFixed(8)}`)
+      commands.push(`L ${(b[0] + normalB[0]*rB).toFixed(8)}, ${(b[1] + normalB[1]*rB).toFixed(8)}`)
+      commands.push(`L ${(a[0] + normal[0]*rA).toFixed(8)}, ${(a[1] + normal[1]*rA).toFixed(8)}`);
       commands.push('Z');
       element.setAttribute('d', commands.join(' '));
 
       const colorA = colors[i];
       const colorB = colors[i+1];
-      const colorStr = `rgba(${colorA.map(c => (c*255).toFixed(4)).join(',')})`;
-      element.setAttribute('fill', colorStr); // TODO make gradient
-      element.setAttribute('stroke', colorStr); // TODO make gradient
+      const colorStr = `rgba(${colorA.map(c => (c*255).toFixed(8)).join(',')})`;
+      element.setAttribute('fill', colorStr);
+      element.setAttribute('stroke', colorStr);
       element.setAttribute('stroke-width', '0.5');
+      element.setAttribute('stroke-linecap', 'round');
 
-      segments.push({element, depth});
+      segments.push({element, depth, z});
     }
 
     return segments;
@@ -139,7 +161,6 @@ class Path {
 class PipeDream {
   constructor(svg) {
     this.svg = svg || document.createElementNS(ns, 'svg');
-    //this.svg.setAttribute('shape-rendering', 'crispEdges');
     this.segments = [];
 
 
@@ -200,11 +221,50 @@ class PipeDream {
         settings.vert(attr, settings.uniforms, emit);
       });
 
-      if (settings.postprocess) {
-        settings.postprocess(path);
-      }
-
       this.segments.push(...path.generateSegments(this.projectionMatrix, this.width, this.height));
+    };
+  }
+
+  postprocess(callback) {
+    callback(this.segments);
+  }
+
+  stackBlur(focalDistance, blurAmount) {
+    return (segments) => {
+      for (let i = 0; i < segments.length; i++) {
+        const stdDev = blurAmount * Math.abs(segments[i].z - focalDistance);
+
+        const blurred = document.createElementNS(ns, 'g');
+        const filter = document.createElementNS(ns, 'filter');
+        const filterID = `stack_blur_${i}`;
+        filter.setAttribute('id', filterID);
+        filter.setAttribute('x', '-40%');
+        filter.setAttribute('y', '-40%');
+        filter.setAttribute('width', '180%');
+        filter.setAttribute('height', '180%');
+        filter.setAttribute('filterUnits', 'userSpaceOnUse');
+        const dilate = document.createElementNS(ns, 'feMorphology');
+        dilate.setAttribute('operator', 'dilate');
+        dilate.setAttribute('radius', ( 1.5*stdDev ).toFixed(8));
+        dilate.setAttribute('in', 'SourceGraphic');
+        const gaussianBlur = document.createElementNS(ns, 'feGaussianBlur');
+        gaussianBlur.setAttribute('stdDeviation', stdDev.toFixed(8));
+        //const merge = document.createElementNS(ns, 'feMerge');
+        //const mergeNode1 = document.createElementNS(ns, 'feMergeNode');
+        //const mergeNode2 = document.createElementNS(ns, 'feMergeNode');
+        //mergeNode2.setAttribute('in', 'SourceGraphic');
+        //merge.appendChild(mergeNode1);
+        //merge.appendChild(mergeNode2);
+        filter.appendChild(dilate);
+        filter.appendChild(gaussianBlur);
+        //filter.appendChild(merge);
+        blurred.appendChild(filter);
+        segments[i].element.setAttribute('filter', `url(#${filterID})`);
+        //segments[i].element.setAttribute('stroke-width', (0.5 + 2*stdDev).toFixed(8));
+        blurred.appendChild(segments[i].element);
+
+        segments[i].element = blurred;
+      }
     };
   }
 
@@ -214,7 +274,7 @@ class PipeDream {
     const bg = document.createElementNS(ns, 'rect');
     bg.setAttribute('width', this.width);
     bg.setAttribute('height', this.height);
-    bg.setAttribute('fill', `rgba(${bgColor.map(c => (c*255).toFixed(4)).join(',')})`);
+    bg.setAttribute('fill', `rgba(${bgColor.map(c => (c*255).toFixed(8)).join(',')})`);
     bg.setAttribute('stroke-width', 0);
     this.svg.appendChild(bg);
   }
