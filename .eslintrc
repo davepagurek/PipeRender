@@ -1,0 +1,5 @@
+{
+  "extends": "airbnb-base",
+  "import/prefer-default-export": false,
+  max-len: ["error", { "code": 120 }]
+}
