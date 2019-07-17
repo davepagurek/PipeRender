@@ -7,7 +7,7 @@ const drawLine = pipe.shader({
     emit({
       point,
       color,
-      radius: 30
+      radius: 10
     });
   },
   //continuous: true
@@ -16,7 +16,7 @@ const drawLine = pipe.shader({
 pipe.clear();
 
 const points = [];
-let point = glMatrix.vec3.fromValues(-5, 0, -30);
+let point = glMatrix.vec3.fromValues(-5, 0, -35);
 for (let i = 0; i < 10; i++) {
   const color = glMatrix.vec3.fromValues(Math.random(), Math.random(), Math.random());
   points.push({ point, color });
@@ -37,6 +37,6 @@ for (let i = 0; i < 10; i++) {
 
 drawLine({ attributes: points });
 
-pipe.postprocess(pipe.stackBlur(-30, 0.5));
+pipe.postprocess(pipe.stackBlur(-30, 1));
 
 pipe.draw();

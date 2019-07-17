@@ -245,7 +245,7 @@ class PipeDream {
         filter.setAttribute('filterUnits', 'userSpaceOnUse');
         const dilate = document.createElementNS(ns, 'feMorphology');
         dilate.setAttribute('operator', 'dilate');
-        dilate.setAttribute('radius', ( 1.5*stdDev ).toFixed(8));
+        dilate.setAttribute('radius', 1); //( 1.5*stdDev ).toFixed(8));
         dilate.setAttribute('in', 'SourceGraphic');
         const gaussianBlur = document.createElementNS(ns, 'feGaussianBlur');
         gaussianBlur.setAttribute('stdDeviation', stdDev.toFixed(8));
