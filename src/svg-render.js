@@ -4,6 +4,16 @@ const lerp = (a, b, t) => {
   return a + (b - a) * t;
 };
 
+const makeColor = (c) => {
+  return '#' + [ ...c ].map(v => {
+    const chunk = Math.round(v * 255).toString(16).toUpperCase();
+    if (chunk.length === 1) {
+      return '0' + chunk;
+    }
+    return chunk;
+  }).join('');
+};
+
 class Path {
   constructor() {
     this.controlPoints = [];
@@ -71,7 +81,6 @@ class Path {
     const depths = [];
     const zs = [];
 
-    console.log(paths);
     paths.forEach((path, idx) => {
       const total = path.bezier.length();
       const n = idx === paths.length-1 ?
@@ -92,23 +101,6 @@ class Path {
         zs.push(z);
       }
     });
-
-    /*for (let i = 0; i < points.length; i++) {
-      const depth = depths[i];
-      const z = zs[i];
-
-      const element = document.createElementNS(ns, 'circle');
-      element.setAttribute('cx', points[i][0].toFixed(8));
-      element.setAttribute('cy', points[i][1].toFixed(8));
-      element.setAttribute('r', radii[i].toFixed(8));
-
-      const colorStr = `rgba(${colors[i].map(c => (c*255).toFixed(8)).join(',')})`;
-      element.setAttribute('fill', colorStr);
-      element.setAttribute('stroke', colorStr);
-      element.setAttribute('stroke-width', 0.5);
-
-      segments.push({element, depth, z});
-    }*/
 
     for (let i = 0; i < points.length-1; i++) {
       const a = points[i];
@@ -138,8 +130,8 @@ class Path {
       element.setAttribute('d', commands.join(' '));
 
       const colorA = colors[i];
-      const colorB = colors[i+1];
-      const colorStr = `rgba(${colorA.map(c => (c*255).toFixed(8)).join(',')})`;
+      //const colorB = colors[i+1];
+      const colorStr = makeColor(colorA);
       element.setAttribute('fill', colorStr);
       element.setAttribute('stroke', colorStr);
       element.setAttribute('stroke-width', '0.5');
@@ -168,6 +160,7 @@ class PipeDream {
     this.matrix = glMatrix.mat4.create();
     this.width = this.svg.getAttribute('width');
     this.height = this.svg.getAttribute('height');
+    this.svg.setAttribute('viewBox', `0 0 ${this.width} ${this.height}`);
 
     const fieldOfView = Math.PI / 4;
     const aspect = this.width / this.height;
@@ -194,29 +187,29 @@ class PipeDream {
   }
 
   shader(settings) {
-    const path = new Path();
-
-    const emit = ({ point, color, radius }) => {
-      if (settings.continuous && path.controlPoints.length >= 4 && (path.controlPoints.length - 4) % 3 == 0) {
-        const b = path.controlPoints[path.controlPoints.length - 1].point;
-        const a = path.controlPoints[path.controlPoints.length - 2].point;
-        path.push({
-          point: glMatrix.vec4.sub(
-            glMatrix.vec4.create(),
-            glMatrix.vec4.fromValues(b[0]*2, b[1]*2, b[2]*2, 2),
-            a)
-        });
-      }
-
-      const p = glMatrix.vec4.fromValues(point[0], point[1], point[2], 1);
-      path.push({
-        point: glMatrix.vec4.transformMat4(p, p, this.matrix),
-        color,
-        radius
-      });
-    };
-
     return (inputs) => {
+      const path = new Path();
+
+      const emit = ({ point, color, radius }) => {
+        if (settings.continuous && path.controlPoints.length >= 4 && (path.controlPoints.length - 4) % 3 == 0) {
+          const b = path.controlPoints[path.controlPoints.length - 1].point;
+          const a = path.controlPoints[path.controlPoints.length - 2].point;
+          path.push({
+            point: glMatrix.vec4.sub(
+              glMatrix.vec4.create(),
+              glMatrix.vec4.fromValues(b[0]*2, b[1]*2, b[2]*2, 2),
+              a)
+          });
+        }
+
+        const p = glMatrix.vec4.fromValues(point[0], point[1], point[2], 1);
+        path.push({
+          point: glMatrix.vec4.transformMat4(p, p, this.matrix),
+          color,
+          radius
+        });
+      };
+
       inputs.attributes.forEach(attr => {
         settings.vert(attr, settings.uniforms, emit);
       });
@@ -249,18 +242,10 @@ class PipeDream {
         dilate.setAttribute('in', 'SourceGraphic');
         const gaussianBlur = document.createElementNS(ns, 'feGaussianBlur');
         gaussianBlur.setAttribute('stdDeviation', stdDev.toFixed(8));
-        //const merge = document.createElementNS(ns, 'feMerge');
-        //const mergeNode1 = document.createElementNS(ns, 'feMergeNode');
-        //const mergeNode2 = document.createElementNS(ns, 'feMergeNode');
-        //mergeNode2.setAttribute('in', 'SourceGraphic');
-        //merge.appendChild(mergeNode1);
-        //merge.appendChild(mergeNode2);
         filter.appendChild(dilate);
         filter.appendChild(gaussianBlur);
-        //filter.appendChild(merge);
         blurred.appendChild(filter);
         segments[i].element.setAttribute('filter', `url(#${filterID})`);
-        //segments[i].element.setAttribute('stroke-width', (0.5 + 2*stdDev).toFixed(8));
         blurred.appendChild(segments[i].element);
 
         segments[i].element = blurred;
@@ -274,7 +259,7 @@ class PipeDream {
     const bg = document.createElementNS(ns, 'rect');
     bg.setAttribute('width', this.width);
     bg.setAttribute('height', this.height);
-    bg.setAttribute('fill', `rgba(${bgColor.map(c => (c*255).toFixed(8)).join(',')})`);
+    bg.setAttribute('fill', makeColor(bgColor));
     bg.setAttribute('stroke-width', 0);
     this.svg.appendChild(bg);
   }
@@ -283,5 +268,51 @@ class PipeDream {
     // Higher depth first so that closer elements get drawn last
     this.segments.sort((a, b) => b.depth - a.depth);
     this.segments.forEach(s => this.svg.appendChild(s.element));
+  }
+
+  exportSVG(filename = 'export.svg') {
+    const serializer = new XMLSerializer();
+    const src = serializer.serializeToString(this.svg);
+    const blob = new Blob([src], { type: 'text/plain;charset=utf-8' });
+    const downloader = document.createElement('a');
+    downloader.setAttribute('href', URL.createObjectURL(blob));
+    downloader.setAttribute('download', filename);
+    document.body.appendChild(downloader);
+    setTimeout(() => {
+      downloader.click();
+      document.body.removeChild(downloader);
+    }, 0);
+  }
+
+  exportPNG(scale = 1, filename = 'export.png') {
+    const serializer = new XMLSerializer();
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('width', this.width * scale);
+    canvas.setAttribute('height', this.height * scale);
+
+    const exportSvg = this.svg.cloneNode(true);
+    exportSvg.setAttribute('width', this.width * scale);
+    exportSvg.setAttribute('height', this.height * scale);
+    exportSvg.setAttribute('style', `width: ${this.width*scale}px; height: ${this.height*scale}px;`);
+
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob((pngBlob) => {
+        const downloader = document.createElement('a');
+        downloader.setAttribute('href', URL.createObjectURL(pngBlob));
+        downloader.setAttribute('download', 'export.png');
+        document.body.appendChild(downloader);
+        downloader.click();
+        console.log('clicked');
+        document.body.removeChild(downloader);
+      }, 'image/png');
+    };
+    img.onerror = (e) => {
+      throw e;
+    };
+
+    img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(serializer.serializeToString(exportSvg));
   }
 }

@@ -18,3 +18,9 @@ p {
   display: block;
   margin-top: 20px;
 }
+
+a {
+  color: #FFF;
+  text-decoration: underline;
+  cursor: pointer;
+}
