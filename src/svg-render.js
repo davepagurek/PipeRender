@@ -14,7 +14,7 @@ function makeColor(c) {
   }).join('');
 }
 
-class PipeDream {
+class PipeRender {
   constructor(svg) {
     this.svg = svg || document.createElementNS(ns, 'svg');
     this.segments = [];
@@ -83,7 +83,7 @@ class PipeDream {
         settings.vert(attr, settings.uniforms, emit);
       });
 
-      this.segments.push(...path.generateSegments(this.projectionMatrix, this.width, this.height));
+      this.segments.push(...path.generateSegments(this.projectionMatrix, this.width, this.height, 0.5));
     };
   }
 
